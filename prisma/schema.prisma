@@ -1,0 +1,271 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ========================================
+// ユーザー
+// ========================================
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  displayName     String?   @map("display_name")
+
+  // ゴルフプロフィール
+  averageScore    Int?      @map("average_score")
+  headSpeed       Float?    @map("head_speed")
+  handicap        Float?
+  golfStartYear   Int?      @map("golf_start_year")
+  homeCourseName  String?   @map("home_course_name")
+
+  // サブスクリプション
+  plan                 Plan      @default(FREE)
+  stripeCustomerId     String?   @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  planExpiresAt        DateTime? @map("plan_expires_at")
+
+  // リレーション
+  rounds          Round[]
+  practices       Practice[]
+  analysisReports AnalysisReport[]
+  trainingPlans   TrainingPlan[]
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+enum Plan {
+  FREE
+  STANDARD
+  PRO
+}
+
+// ========================================
+// ラウンドデータ
+// ========================================
+model Round {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // ラウンド基本情報
+  playedAt    DateTime  @map("played_at")
+  courseName  String    @map("course_name")
+  courseRating Float?   @map("course_rating")
+  slopeRating Int?     @map("slope_rating")
+  weather     Weather?
+  wind        WindLevel?
+  temperature Float?
+
+  // サマリ（holesから自動計算してキャッシュ）
+  totalScore   Int      @map("total_score")
+  outScore     Int?     @map("out_score")
+  inScore      Int?     @map("in_score")
+  totalPutts   Int?     @map("total_putts")
+  fairwayHit   Int?     @map("fairway_hit")
+  fairwayTotal Int?     @map("fairway_total")
+  girCount     Int?     @map("gir_count")
+  penaltyCount Int?     @map("penalty_count")
+
+  memo        String?
+
+  // リレーション
+  holes       HoleData[]
+  analysisReports AnalysisReport[]
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, playedAt(sort: Desc)])
+  @@map("rounds")
+}
+
+enum Weather {
+  SUNNY
+  CLOUDY
+  RAINY
+  WINDY
+}
+
+enum WindLevel {
+  CALM
+  LIGHT
+  MODERATE
+  STRONG
+}
+
+model HoleData {
+  id          String    @id @default(uuid())
+  roundId     String    @map("round_id")
+  round       Round     @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  holeNumber  Int       @map("hole_number")
+  par         Int
+  score       Int
+  putts       Int
+
+  fairway     FairwayResult?
+  greenInRegulation Boolean @default(false) @map("green_in_regulation")
+
+  penalty     Int       @default(0)
+  missType    MissType? @map("miss_type")
+  missDetail  String?   @map("miss_detail")
+
+  clubUsed    String?   @map("club_used")
+  approachDistance Int?  @map("approach_distance")
+  approachClub String?  @map("approach_club")
+
+  @@unique([roundId, holeNumber])
+  @@map("hole_data")
+}
+
+enum FairwayResult {
+  HIT
+  LEFT
+  RIGHT
+  SHORT
+  LONG
+}
+
+enum MissType {
+  SLICE
+  HOOK
+  DUFF
+  TOP
+  SHANK
+  PUSH
+  PULL
+  FAT
+  THIN
+  THREE_PUTT
+  OTHER
+}
+
+// ========================================
+// 練習ログ
+// ========================================
+model Practice {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  practicedAt DateTime  @map("practiced_at")
+  location    PracticeLocation
+  locationName String?  @map("location_name")
+  durationMin Int       @map("duration_min")
+
+  feelRating  Int?      @map("feel_rating")
+  memo        String?
+
+  items       PracticeItem[]
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, practicedAt(sort: Desc)])
+  @@map("practices")
+}
+
+enum PracticeLocation {
+  DRIVING_RANGE
+  INDOOR_GOLF
+  PUTTING_GREEN
+  APPROACH_AREA
+  HOME
+  COURSE
+  OTHER
+}
+
+model PracticeItem {
+  id          String    @id @default(uuid())
+  practiceId  String    @map("practice_id")
+  practice    Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  category    PracticeCategory
+  detail      String?
+  ballCount   Int?      @map("ball_count")
+  durationMin Int?      @map("duration_min")
+  club        String?
+
+  feelRating  Int?      @map("feel_rating")
+  notes       String?
+
+  @@map("practice_items")
+}
+
+enum PracticeCategory {
+  DRIVER
+  WOOD
+  UTILITY
+  LONG_IRON
+  MID_IRON
+  SHORT_IRON
+  WEDGE
+  APPROACH
+  BUNKER
+  PUTTING
+  SWING_DRILL
+  FITNESS
+  OTHER
+}
+
+// ========================================
+// AI分析レポート
+// ========================================
+model AnalysisReport {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roundId     String?   @map("round_id")
+  round       Round?    @relation(fields: [roundId], references: [id])
+
+  reportType  ReportType @map("report_type")
+
+  content     Json
+
+  modelUsed   String    @map("model_used")
+  promptTokens Int?     @map("prompt_tokens")
+  completionTokens Int? @map("completion_tokens")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("analysis_reports")
+}
+
+enum ReportType {
+  ROUND_ANALYSIS
+  TREND_ANALYSIS
+  PRACTICE_IMPACT
+}
+
+// ========================================
+// AIトレーニングプラン
+// ========================================
+model TrainingPlan {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  weekStartDate DateTime @map("week_start_date")
+
+  content     Json
+
+  basedOnRoundIds String[] @map("based_on_round_ids")
+  focusAreas      String[] @map("focus_areas")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([userId, weekStartDate])
+  @@map("training_plans")
+}
