@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthenticatedUserId } from "@/lib/supabase/auth-helpers";
 import { calculateRoundStats } from "@/lib/utils/golf-stats";
+import { checkRoundLimit } from "@/lib/utils/plan-limits";
 import { z } from "zod";
 
 const HoleSchema = z.object({
@@ -75,6 +76,28 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await getAuthenticatedUserId();
   if (auth.error) return auth.error;
+
+  // プラン制限チェック
+  const user = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: { plan: true },
+  });
+
+  if (user) {
+    const limit = await checkRoundLimit(auth.userId, user.plan);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "PLAN_LIMIT",
+            message: `今月のラウンド記録上限（${limit.max}件）に達しました。プランをアップグレードしてください。`,
+          },
+        },
+        { status: 403 }
+      );
+    }
+  }
 
   let body;
   try {
