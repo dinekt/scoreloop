@@ -8,9 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScoreCard } from "@/components/rounds/ScoreCard";
+import { AIReportCard } from "@/components/analysis/AIReportCard";
 import { WEATHER_LABELS, WIND_LABELS } from "@/lib/constants/golf";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { DeleteRoundButton } from "./DeleteRoundButton";
+import { AnalyzeButton } from "./AnalyzeButton";
+import type { RoundAnalysis } from "@/lib/openai/schemas/round-analysis";
 
 export default async function RoundDetailPage({
   params,
@@ -26,14 +29,22 @@ export default async function RoundDetailPage({
 
   const { id } = await params;
 
-  const round = await prisma.round.findFirst({
-    where: { id, userId: user.id },
-    include: { holes: { orderBy: { holeNumber: "asc" } } },
-  });
+  const [round, analysisReport] = await Promise.all([
+    prisma.round.findFirst({
+      where: { id, userId: user.id },
+      include: { holes: { orderBy: { holeNumber: "asc" } } },
+    }),
+    prisma.analysisReport.findFirst({
+      where: { roundId: id, userId: user.id, reportType: "ROUND_ANALYSIS" },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   if (!round) {
     notFound();
   }
+
+  const analysisContent = analysisReport?.content as RoundAnalysis | null;
 
   const fwPercentage =
     round.fairwayHit != null && round.fairwayTotal
@@ -146,6 +157,23 @@ export default async function RoundDetailPage({
           </CardContent>
         </Card>
       )}
+
+      {/* AI分析 */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">AI分析</h2>
+          <AnalyzeButton roundId={round.id} />
+        </div>
+        {analysisContent ? (
+          <AIReportCard analysis={analysisContent} />
+        ) : (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              まだAI分析が実行されていません。上のボタンから分析を開始してください。
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
